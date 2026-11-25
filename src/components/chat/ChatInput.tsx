@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Square, Paperclip, Mic } from 'lucide-react';
+import { Send, Square, Paperclip, Mic, X, FileText } from 'lucide-react';
 
 interface ChatInputProps {
   onSend: (content: string) => void;
@@ -21,7 +21,26 @@ const SUGGESTED_PROMPTS = [
 export default function ChatInput({ onSend, onStop, isGenerating, disabled }: ChatInputProps) {
   const [text, setText] = useState('');
   const [showPrompts, setShowPrompts] = useState(false);
+  const [attachedFile, setAttachedFile] = useState<{ name: string; content: string } | null>(null);
+  const [isListening, setIsListening] = useState(false);
+  const [inputNotice, setInputNotice] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSend = useCallback(() => {
+    if ((!text.trim() && !attachedFile) || isGenerating || disabled) return;
+    const finalMessage = attachedFile
+      ? `[Attached file: ${attachedFile.name}]\n\`\`\`\n${attachedFile.content}\n\`\`\`\n\n${text.trim() || 'Analyze this file.'}`
+      : text.trim();
+
+    onSend(finalMessage);
+    setText('');
+    setAttachedFile(null);
+    setShowPrompts(false);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+  }, [text, attachedFile, isGenerating, disabled, onSend]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -30,25 +49,99 @@ export default function ChatInput({ onSend, onStop, isGenerating, disabled }: Ch
     }
   };
 
-  const handleSend = useCallback(() => {
-    if (!text.trim() || isGenerating || disabled) return;
-    onSend(text.trim());
-    setText('');
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
-  }, [text, isGenerating, disabled, onSend]);
-
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value);
-    // Auto-resize
     const ta = e.target;
     ta.style.height = 'auto';
     ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    if (file.size > 200 * 1024) {
+      setInputNotice('File must be under 200 KB.');
+      setTimeout(() => setInputNotice(null), 3000);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setAttachedFile({
+        name: file.name,
+        content: String(reader.result || '').slice(0, 15000),
+      });
+      textareaRef.current?.focus();
+    };
+    reader.readAsText(file);
+  };
+
+  const handleVoiceInput = () => {
+    const SpeechRecognition =
+      (window as unknown as { SpeechRecognition?: new () => any; webkitSpeechRecognition?: new () => any })
+        .SpeechRecognition ||
+      (window as unknown as { webkitSpeechRecognition?: new () => any }).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setInputNotice('Voice input is not supported in this browser.');
+      setTimeout(() => setInputNotice(null), 3000);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    setIsListening(true);
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results?.[0]?.[0]?.transcript || '';
+      if (transcript) {
+        setText((prev) => (prev ? `${prev} ${transcript}` : transcript));
+      }
+      setIsListening(false);
+    };
+    recognition.onerror = () => setIsListening(false);
+    recognition.onend = () => setIsListening(false);
+    recognition.start();
+  };
+
+  const canSend = Boolean((text.trim() || attachedFile) && !disabled);
+
   return (
     <div className="max-w-4xl mx-auto w-full space-y-3">
+      {/* Attachment or Notice */}
+      <AnimatePresence>
+        {(attachedFile || inputNotice) && (
+          <motion.div
+            className="flex flex-wrap items-center gap-2"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 6 }}
+          >
+            {attachedFile && (
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-electric-blue/10 border border-electric-blue/25 text-electric-blue text-xs">
+                <FileText size={13} />
+                <span className="font-mono">{attachedFile.name}</span>
+                <button
+                  onClick={() => setAttachedFile(null)}
+                  className="hover:text-white transition-colors"
+                  title="Remove attachment"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            )}
+            {inputNotice && (
+              <span className="text-xs text-signal-red bg-signal-red/10 border border-signal-red/25 px-3 py-1 rounded-lg">
+                {inputNotice}
+              </span>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Suggested prompts */}
       <AnimatePresence>
         {showPrompts && !isGenerating && (
@@ -89,7 +182,6 @@ export default function ChatInput({ onSend, onStop, isGenerating, disabled }: Ch
             : '0 8px 32px rgba(0,0,0,0.4)',
         }}
       >
-        {/* Scanning line when generating */}
         {isGenerating && (
           <motion.div
             className="absolute top-0 left-0 right-0 h-px rounded-t-2xl"
@@ -100,10 +192,20 @@ export default function ChatInput({ onSend, onStop, isGenerating, disabled }: Ch
         )}
 
         <div className="flex items-end gap-3 p-3 pl-4">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".txt,.md,.js,.jsx,.ts,.tsx,.py,.json,.csv,.html,.css,.sql,.log"
+            onChange={handleFileChange}
+            className="hidden"
+          />
+
           {/* Attachment */}
           <button
-            className="flex-shrink-0 p-2 rounded-lg text-gray-600 hover:text-gray-400 hover:bg-white/[0.04] transition-all mb-0.5"
-            title="Attach file"
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="flex-shrink-0 p-2 rounded-lg text-gray-500 hover:text-batman-yellow hover:bg-white/[0.04] transition-all mb-0.5"
+            title="Attach text or code file"
           >
             <Paperclip size={16} />
           </button>
@@ -123,8 +225,14 @@ export default function ChatInput({ onSend, onStop, isGenerating, disabled }: Ch
 
           {/* Voice */}
           <button
-            className="flex-shrink-0 p-2 rounded-lg text-gray-600 hover:text-gray-400 hover:bg-white/[0.04] transition-all mb-0.5"
-            title="Voice input"
+            type="button"
+            onClick={handleVoiceInput}
+            className={`flex-shrink-0 p-2 rounded-lg transition-all mb-0.5 ${
+              isListening
+                ? 'text-signal-red bg-signal-red/15 animate-pulse'
+                : 'text-gray-500 hover:text-batman-yellow hover:bg-white/[0.04]'
+            }`}
+            title={isListening ? 'Listening...' : 'Voice input'}
           >
             <Mic size={16} />
           </button>
@@ -132,17 +240,17 @@ export default function ChatInput({ onSend, onStop, isGenerating, disabled }: Ch
           {/* Send / Stop */}
           <motion.button
             onClick={isGenerating ? onStop : handleSend}
-            disabled={!isGenerating && (!text.trim() || disabled)}
+            disabled={!isGenerating && !canSend}
             className={`flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-300 mb-0.5 ${
               isGenerating
                 ? 'bg-signal-red/20 text-signal-red border border-signal-red/30 hover:bg-signal-red/30'
-                : text.trim()
+                : canSend
                 ? 'bg-batman-yellow text-gotham-black hover:bg-batman-yellow-dim'
                 : 'bg-gotham-charcoal text-gray-700 cursor-not-allowed'
             }`}
             whileTap={{ scale: 0.92 }}
             style={
-              text.trim() && !isGenerating
+              canSend && !isGenerating
                 ? { boxShadow: '0 0 15px rgba(245,197,24,0.3)' }
                 : {}
             }

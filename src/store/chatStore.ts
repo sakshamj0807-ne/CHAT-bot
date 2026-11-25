@@ -8,6 +8,8 @@ interface ChatStore {
   activeConversationId: string | null;
   searchQuery: string;
   isGenerating: boolean;
+  selectedModel: string;
+  demoMode: boolean;
 
   // Actions
   createConversation: () => string;
@@ -17,10 +19,17 @@ interface ChatStore {
   pinConversation: (id: string) => void;
   saveConversation: (id: string) => void;
   addMessage: (conversationId: string, message: Omit<Message, 'id'>) => string;
-  updateMessage: (conversationId: string, messageId: string, content: string) => void;
+  updateMessage: (
+    conversationId: string,
+    messageId: string,
+    content: string,
+    options?: { isStreaming?: boolean; isError?: boolean }
+  ) => void;
   removeMessage: (conversationId: string, messageId: string) => void;
   setSearchQuery: (q: string) => void;
   setIsGenerating: (v: boolean) => void;
+  setSelectedModel: (model: string) => void;
+  setDemoMode: (enabled: boolean) => void;
   getActiveConversation: () => Conversation | undefined;
   clearAllConversations: () => void;
 }
@@ -32,6 +41,8 @@ export const useChatStore = create<ChatStore>()(
       activeConversationId: null,
       searchQuery: '',
       isGenerating: false,
+      selectedModel: 'openai/gpt-oss-120b',
+      demoMode: false,
 
       createConversation: () => {
         const id = uuidv4();
@@ -48,11 +59,12 @@ export const useChatStore = create<ChatStore>()(
         set((s) => ({
           conversations: [newConv, ...s.conversations],
           activeConversationId: id,
+          isGenerating: false,
         }));
         return id;
       },
 
-      setActiveConversation: (id) => set({ activeConversationId: id }),
+      setActiveConversation: (id) => set({ activeConversationId: id, isGenerating: false }),
 
       deleteConversation: (id) =>
         set((s) => {
@@ -90,20 +102,28 @@ export const useChatStore = create<ChatStore>()(
       addMessage: (conversationId, message) => {
         const id = uuidv4();
         set((s) => ({
-          conversations: s.conversations.map((c) =>
-            c.id === conversationId
-              ? {
-                  ...c,
-                  messages: [...c.messages, { ...message, id }],
-                  updatedAt: new Date(),
-                }
-              : c
-          ),
+          conversations: s.conversations.map((c) => {
+            if (c.id !== conversationId) return c;
+            const shouldAutoTitle =
+              message.role === 'user' &&
+              c.messages.length === 0 &&
+              c.title === 'New Investigation';
+            const cleanTitle = message.content.replace(/\s+/g, ' ').trim();
+            const nextTitle = shouldAutoTitle
+              ? cleanTitle.slice(0, 40) + (cleanTitle.length > 40 ? '...' : '')
+              : c.title;
+            return {
+              ...c,
+              title: nextTitle,
+              messages: [...c.messages, { ...message, id }],
+              updatedAt: new Date(),
+            };
+          }),
         }));
         return id;
       },
 
-      updateMessage: (conversationId, messageId, content) =>
+      updateMessage: (conversationId, messageId, content, options) =>
         set((s) => ({
           conversations: s.conversations.map((c) =>
             c.id === conversationId
@@ -111,9 +131,15 @@ export const useChatStore = create<ChatStore>()(
                   ...c,
                   messages: c.messages.map((m) =>
                     m.id === messageId
-                      ? { ...m, content, isStreaming: false }
+                      ? {
+                          ...m,
+                          content,
+                          isStreaming: options?.isStreaming ?? false,
+                          isError: options?.isError ?? false,
+                        }
                       : m
                   ),
+                  updatedAt: new Date(),
                 }
               : c
           ),
@@ -133,6 +159,8 @@ export const useChatStore = create<ChatStore>()(
 
       setSearchQuery: (q) => set({ searchQuery: q }),
       setIsGenerating: (v) => set({ isGenerating: v }),
+      setSelectedModel: (model) => set({ selectedModel: model }),
+      setDemoMode: (enabled) => set({ demoMode: enabled }),
 
       getActiveConversation: () => {
         const { conversations, activeConversationId } = get();
@@ -144,7 +172,12 @@ export const useChatStore = create<ChatStore>()(
     }),
     {
       name: 'dark-knight-ai-chats',
-      partialize: (s) => ({ conversations: s.conversations, activeConversationId: s.activeConversationId }),
+      partialize: (s) => ({
+        conversations: s.conversations,
+        activeConversationId: s.activeConversationId,
+        selectedModel: s.selectedModel,
+        demoMode: s.demoMode,
+      }),
     }
   )
 );

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Copy, RefreshCw, ThumbsUp, ThumbsDown, Check } from 'lucide-react';
+import { Copy, RefreshCw, ThumbsUp, ThumbsDown, Check, AlertTriangle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -69,11 +69,28 @@ export default function MessageBubble({ message, isLast, onRegenerate, isGenerat
           className={`rounded-2xl px-4 py-3 ${
             isUser
               ? 'rounded-tr-sm bg-gotham-graphite border border-white/[0.06]'
+              : message.isError
+              ? 'rounded-tl-sm bg-signal-red/10 border border-signal-red/35'
               : 'rounded-tl-sm glass border border-white/[0.04]'
           } ${message.isStreaming ? 'border-batman-yellow/10' : ''}`}
         >
           {isUser ? (
             <p className="text-gray-200 text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+          ) : message.isError ? (
+            <div className="space-y-2.5">
+              <div className="flex items-start gap-2 text-signal-red text-sm">
+                <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
+                <p className="leading-relaxed">{message.content}</p>
+              </div>
+              <button
+                onClick={() => onRegenerate(message.id)}
+                disabled={isGenerating}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-signal-red/15 hover:bg-signal-red/25 border border-signal-red/30 text-signal-red text-xs font-medium transition-all disabled:opacity-40"
+              >
+                <RefreshCw size={11} className={isGenerating ? 'animate-spin' : ''} />
+                Retry Request
+              </button>
+            </div>
           ) : (
             <div className="markdown-content text-sm">
               <ReactMarkdown

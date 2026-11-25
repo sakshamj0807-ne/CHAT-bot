@@ -277,6 +277,7 @@ function ConvItem({
   onSave: (id: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [editTitle, setEditTitle] = useState(conv.title);
   const [hover, setHover] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -306,8 +307,11 @@ function ConvItem({
           : 'hover:bg-white/[0.03] border border-transparent'
       }`}
       onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onClick={() => !editing && onSelect(conv.id)}
+      onMouseLeave={() => {
+        setHover(false);
+        setConfirmingDelete(false);
+      }}
+      onClick={() => !editing && !confirmingDelete && onSelect(conv.id)}
       whileHover={{ x: 1 }}
     >
       <MessageSquare
@@ -375,13 +379,35 @@ function ConvItem({
           >
             <Bookmark size={10} />
           </button>
-          <button
-            onClick={() => onDelete(conv.id)}
-            className="p-1 rounded text-gray-600 hover:text-signal-red transition-colors"
-            title="Delete"
-          >
-            <Trash2 size={10} />
-          </button>
+          {confirmingDelete ? (
+            <>
+              <button
+                onClick={() => {
+                  onDelete(conv.id);
+                  setConfirmingDelete(false);
+                }}
+                className="p-1 rounded text-signal-red hover:bg-signal-red/15 transition-colors"
+                title="Confirm delete"
+              >
+                <Check size={10} />
+              </button>
+              <button
+                onClick={() => setConfirmingDelete(false)}
+                className="p-1 rounded text-gray-500 hover:text-gray-300 transition-colors"
+                title="Cancel"
+              >
+                <X size={10} />
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setConfirmingDelete(true)}
+              className="p-1 rounded text-gray-600 hover:text-signal-red transition-colors"
+              title="Delete"
+            >
+              <Trash2 size={10} />
+            </button>
+          )}
         </div>
       )}
     </motion.div>
